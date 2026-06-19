@@ -1,0 +1,25 @@
+# Local Python environments and package caches
+.venv/
+.uv-cache/
+.env
+
+# Python cache and tooling artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and notebook artifacts
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Model
+models/
+*.pkl
+*.pt
+*.pth
+
+# Local data files
+data/
