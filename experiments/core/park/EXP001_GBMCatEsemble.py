@@ -8,6 +8,7 @@ from catboost import CatBoostClassifier, Pool
 from scipy.optimize import minimize
 import optuna
 import warnings
+from sklearn.preprocessing import OrdinalEncoder
 
 warnings.filterwarnings('ignore')
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -62,13 +63,24 @@ def load_and_preprocess(train_path='train.csv', test_path='test.csv'):
     X_train, cat_cols = engineer_features(X_train)
     X_test, _ = engineer_features(X_test)
     
+# 카테고리 인코딩 (데이콘 규정 완벽 준수)
     X_train_int, X_test_int = X_train.copy(), X_test.copy()
+    
+    # handle_unknown='use_encoded_value' 설정으로 Test셋에 등장하는 낯선 단어는 모두 -1로 안전하게 예외처리
+    oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+    
+# 🌟 뒤에 .astype(int) 를 붙여서 강제로 소수점을 날려버립니다!
+    X_train_int[cat_cols] = oe.fit_transform(X_train[cat_cols].astype(str))
+    X_test_int[cat_cols] = oe.transform(X_test[cat_cols].astype(str))
+# 🌟 빈칸(NaN)을 안전한 숫자(-1)로 먼저 덮어씌운 다음 정수로 변환합니다!
     for col in cat_cols:
-        le = LabelEncoder()
-        all_data = list(X_train[col].astype(str)) + list(X_test[col].astype(str))
-        le.fit(all_data)
-        X_train_int[col] = le.transform(X_train[col].astype(str))
-        X_test_int[col] = le.transform(X_test[col].astype(str))
+        X_train_int[col] = X_train_int[col].fillna(-1).astype(int)
+        X_test_int[col] = X_test_int[col].fillna(-1).astype(int)
+    
+    # 세워진 기준을 바탕으로 Test 데이터를 변환(transform)만 합니다!
+    X_test_int[cat_cols] = oe.transform(X_test[cat_cols].astype(str))
+    
+    X_train_cat, X_test_cat = X_train_int.copy(), X_test_int.copy()
         
     X_train_cat, X_test_cat = X_train_int.copy(), X_test_int.copy()
     for col in cat_cols:
@@ -80,7 +92,7 @@ def load_and_preprocess(train_path='train.csv', test_path='test.csv'):
 def main():
     # 🌟🌟🌟 시드 컨트롤 타워 🌟🌟🌟
     # 여기서 숫자만 바꾸고 돌리면 모든 시드가 한방에 바뀝니다!
-    MASTER_SEED = 777
+    MASTER_SEED = 42
     print(f"\n🎯 [현재 시드 번호: {MASTER_SEED}] 로 학습을 시작합니다!")
 
     X_train_int, X_test_int, X_train_cat, X_test_cat, y_train, test_id, cat_cols = load_and_preprocess()
@@ -178,6 +190,11 @@ def main():
         model_cat = CatBoostClassifier(**best_cat_params, verbose=False)
         model_cat.fit(train_pool, eval_set=val_pool, early_stopping_rounds=50)
         oof_cat[val_idx] = model_cat.predict_proba(val_pool)[:, 1]
+        
+        # 🌟 예측 직전, 판다스가 바꾼 소수점을 강제로 박살 내는 무적의 코드!
+        for col in cat_cols_remaining:
+            X_test_int[col] = X_test_int[col].fillna(-1).astype(int)
+            
         test_preds_cat += model_cat.predict_proba(X_test_int)[:, 1] / N_SPLITS
 
     print("\n⚖️ [6/6] AI가 새로운 데이터셋에 최적화된 앙상블 비율을 재계산합니다...")
